@@ -1,27 +1,67 @@
 import streamlit as st
-import sqlite3
+from supabase import create_client, Client
 
-st.set_page_config(page_title="OMI v4.6", layout="wide")
+st.set_page_config(page_title="OMI Market - Used Japanese Generator", layout="wide")
 
-conn = sqlite3.connect("omi.db", check_same_thread=False)
-c = conn.cursor()
+# 1. 堅牢なクラウドDB接続（データが100%飛ばない仕組み）
+# StreamlitのSecrets（環境変数）から安全にキーを読み込みます
+@st.cache_resource
+def init_supabase():
+    # 本番環境ではStreamlit CloudのSecretsに、ローカルでは .streamlit/secrets.toml に保存します
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
-st.title("🏭 OMI Market v4.6")
+try:
+    supabase: Client = init_supabase()
+except Exception as e:
+    st.error("Database connection failed. Please check your Secrets configuration.")
+    st.stop()
 
-# SELLERリンク（これだけでOK）
-st.markdown("👉 [SELLERを開く](http://localhost:8502)")
+st.title("🏭 OMI Market - Used Japanese Generator")
 
-# SEARCH
-search = st.text_input("🔍 商品検索")
+# 2. 環境に依存しないリンク設計
+# 自分のドメインや本番URLに自動追従するようにMarkdownではなくst.link_buttonなどを推奨（後述）
+st.info("💡 Looking for the Seller Dashboard? Contact the administrator.")
 
-rows = c.execute("SELECT title, kva, price, year FROM items").fetchall()
+# 3. 検索機能
+search = st.text_input("🔍 Search Products (e.g., Denyo, 25kVA)", placeholder="Type brand or capacity...")
 
+# 4. データ取得（クラウドから安全に取得）
+try:
+    # Supabaseの'items'テーブルから全件取得
+    response = supabase.table("items").select("title, kva, price, year").execute()
+    rows = response.data
+except Exception as e:
+    st.error(f"Error fetching data: {e}")
+    rows = []
+
+# 5. フロントエンドでのフィルタリング（大文字小文字を区別しない）
 if search:
-    items = [r for r in rows if search.lower() in str(r[0]).lower()]
+    items = [r for r in rows if search.lower() in str(r.get("title", "")).lower()]
 else:
     items = rows
 
-st.write("## 商品一覧")
+st.write("## 📦 Live Inventory")
 
-for i in items:
-    st.write(f"{i[0]} / {i[1]}KVA / ¥{i[2]} / {i[3]}年")
+# 6. 将来のSEOとユーザー体験を意識したレイアウト表示
+if not items:
+    st.warning("No products found matching your search.")
+else:
+    for i in items:
+        # プレースホルダーから安全にデータを取得
+        title = i.get("title", "N/A")
+        kva = i.get("kva", "-")
+        price = i.get("price", "0")
+        year = i.get("year", "-")
+        
+        # 将来の海外バイヤー向けに英語表記をベースにしつつ、見やすいカード型（コンテナ）に変更
+        with st.container(border=True):
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                st.markdown(f"### **{title}**")
+            with col2:
+                st.markdown(f"**Capacity:** {kva} KVA  \n**Year:** {year}")
+            with col3:
+                # 通貨表記も海外向けに追々USDなどに変えられるように準備
+                st.markdown(f"### ¥{int(price):,}")

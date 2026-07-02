@@ -2,37 +2,10 @@ import streamlit as st
 import sqlite3
 import uuid
 
-# =========================
-# DB
-# =========================
 conn = sqlite3.connect("omi.db", check_same_thread=False)
 c = conn.cursor()
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS sellers (
-    seller_id TEXT PRIMARY KEY,
-    company_name TEXT,
-    contact_name TEXT,
-    phone TEXT,
-    email TEXT
-)
-""")
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS items (
-    item_id TEXT PRIMARY KEY,
-    seller_id TEXT,
-    title TEXT,
-    maker TEXT,
-    kva TEXT,
-    hours TEXT,
-    price TEXT,
-    year TEXT,
-    note TEXT
-)
-""")
-
-conn.commit()
+st.title("OMI Market v4.7")
 
 # =========================
 # SESSION
@@ -40,115 +13,86 @@ conn.commit()
 if "seller_id" not in st.session_state:
     st.session_state.seller_id = None
 
-# =========================
-# HEADER
-# =========================
-st.title("OMI Market v4.7")
-
-menu = st.sidebar.radio(
-    "Menu",
-    ["🔍 商品を見る（公開）", "🏪 出品者ログイン", "📦 出品者ダッシュボード"]
-)
+if "page" not in st.session_state:
+    st.session_state.page = "TOP"
 
 # =========================
-# PUBLIC VIEW（v4.7コア）
+# TOP PAGE（必ず表示）
 # =========================
-if menu == "🔍 商品を見る（公開）":
+def show_top():
 
-    st.subheader("発電機・建機マーケット")
+    st.subheader("公開マーケット（TOP）")
 
     items = c.execute("""
-        SELECT item_id, title, maker, kva, price
-        FROM items
+        SELECT item_id, title, maker, kva, price FROM items
     """).fetchall()
 
     for i in items:
         st.write(f"🟢 {i[1]} / {i[2]} / {i[3]}KVA / ¥{i[4]}")
 
-        if st.button(f"詳細を見る {i[0]}"):
-            st.session_state.selected_item = i[0]
-
-    # =====================
-    # LOGIN LINK（ここが重要）
-    # =====================
     st.markdown("---")
-    st.info("出品者の方はこちら → ログインして出品管理できます")
-    if st.button("🔑 出品者ログインへ"):
-        st.session_state.goto_login = True
-        st.experimental_rerun()
+
+    if st.button("🔑 出品者ログイン"):
+        st.session_state.page = "LOGIN"
+        st.rerun()
 
 # =========================
 # LOGIN
 # =========================
-elif menu == "🏪 出品者ログイン":
+def show_login():
 
-    st.subheader("出品者ログイン（簡易）")
+    st.subheader("ログイン")
 
-    seller_name = st.text_input("会社名（仮ログイン）")
+    name = st.text_input("会社名")
 
     if st.button("ログイン"):
         seller = c.execute("""
             SELECT seller_id FROM sellers WHERE company_name=?
-        """, (seller_name,)).fetchone()
+        """, (name,)).fetchone()
 
         if seller:
             st.session_state.seller_id = seller[0]
-            st.success("ログイン成功")
+            st.session_state.page = "DASH"
+            st.rerun()
         else:
-            st.error("出品者が見つかりません")
+            st.error("見つかりません")
+
+    if st.button("← TOPへ戻る"):
+        st.session_state.page = "TOP"
+        st.rerun()
 
 # =========================
-# DASHBOARD（v5側）
+# DASHBOARD
 # =========================
-elif menu == "📦 出品者ダッシュボード":
+def show_dashboard():
 
     if not st.session_state.seller_id:
-        st.warning("先にログインしてください")
-        st.stop()
+        st.warning("未ログイン")
+        st.session_state.page = "TOP"
+        st.rerun()
 
-    st.subheader("あなたの出品管理")
+    st.subheader("出品者ダッシュボード")
 
-    # 自分のアイテム
     items = c.execute("""
-        SELECT item_id, title, kva, price
-        FROM items
+        SELECT title, kva, price FROM items
         WHERE seller_id=?
     """, (st.session_state.seller_id,)).fetchall()
 
-    st.write("## 出品一覧")
-
     for i in items:
-        st.write(f"📦 {i[1]} / {i[2]}KVA / ¥{i[3]}")
+        st.write(f"📦 {i[0]} / {i[1]} / ¥{i[2]}")
 
-    st.write("---")
-    st.write("## 新規出品")
+    if st.button("← TOPへ"):
+        st.session_state.page = "TOP"
+        st.rerun()
 
-    title = st.text_input("商品名")
-    maker = st.text_input("メーカー")
+# =========================
+# ROUTER
+# =========================
+if st.session_state.page == "TOP":
+    show_top()
 
-    kva = st.selectbox("KVA", ["20", "25", "45", "60", "100", "150", "200"])
+elif st.session_state.page == "LOGIN":
+    show_login()
 
-    hours = st.text_input("稼働時間")
-    price = st.text_input("価格")
-    year = st.text_input("年式")
-    note = st.text_area("備考")
-
-    if st.button("出品する"):
-        item_id = str(uuid.uuid4())
-
-        c.execute("""
-            INSERT INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            item_id,
-            st.session_state.seller_id,
-            title,
-            maker,
-            kva,
-            hours,
-            price,
-            year,
-            note
-        ))
-
-        conn.commit()
-        st.success("出品完了")
+elif st.session_state.page == "DASH":
+    show_dashboard()

@@ -2,14 +2,17 @@ import streamlit as st
 import sqlite3
 
 # =========================
-# DB
+# DB INIT（安定版）
 # =========================
 
 conn = sqlite3.connect("omi.db", check_same_thread=False)
 c = conn.cursor()
 
+# ★ 安定化ポイント：毎回スキーマ保証（開発用）
+c.execute("DROP TABLE IF EXISTS items")
+
 c.execute("""
-CREATE TABLE IF NOT EXISTS items (
+CREATE TABLE items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
     maker TEXT,
@@ -25,22 +28,28 @@ CREATE TABLE IF NOT EXISTS items (
 conn.commit()
 
 # =========================
-# SCORE
+# SCORE ENGINE
 # =========================
 
 def score(kva, price):
 
     s = 0
 
+    # 現実KVA帯評価
     if kva in [25, 45]:
-        s += 20
-    elif kva in [60, 100]:
+        s += 15
+    elif kva in [60, 80]:
+        s += 25
+    elif kva in [100, 150]:
         s += 40
-    elif kva in [150, 200]:
+    elif kva in [200, 220]:
+        s += 45
+    elif kva in [300, 500]:
         s += 35
     else:
         s += 10
 
+    # 価格効率
     if price < 1000000:
         s += 20
     elif price < 2000000:
@@ -49,6 +58,20 @@ def score(kva, price):
         s -= 5
 
     return s
+
+# =========================
+# DB INSERT
+# =========================
+
+def insert_item(name, maker, kva, hours, price, year, note, image):
+
+    c.execute("""
+        INSERT INTO items
+        (name, maker, kva, hours, price, year, note, image)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (name, maker, kva, hours, price, year, note, image))
+
+    conn.commit()
 
 # =========================
 # FETCH
@@ -65,17 +88,17 @@ def fetch_items():
 # UI
 # =========================
 
-st.title("OMI v4.5 - Advanced Search Market")
+st.title("OMI v4.5 Stable - Industrial Market OS")
 
-tab1, tab2 = st.tabs(["🧾 出品", "🔍 検索"])
+tab1, tab2 = st.tabs(["🧾 出品", "🔍 商品一覧"])
 
 # =========================
-# ① 出品（変更なし）
+# ① 出品（現実仕様KVA）
 # =========================
 
 with tab1:
 
-    st.subheader("出品（v4.4）")
+    st.subheader("出品登録（安定版）")
 
     name = st.text_input("モデル名")
 
@@ -85,8 +108,8 @@ with tab1:
     )
 
     kva = st.selectbox(
-        "kVA",
-        [25, 45, 60, 100, 150, 200]
+        "kVA（実務レンジ）",
+        [25, 45, 60, 80, 100, 150, 200, 220, 300, 500]
     )
 
     year = st.selectbox(
@@ -114,54 +137,21 @@ with tab1:
 
         img_bytes = image_file.read() if image_file else None
 
-        c.execute("""
-            INSERT INTO items
-            (name, maker, kva, hours, price, year, note, image)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (name, maker, kva, hours_val, price_val, year, note, img_bytes))
+        insert_item(
+            name, maker, kva,
+            hours_val, price_val,
+            year, note, img_bytes
+        )
 
-        conn.commit()
-
-        st.success("出品完了")
+        st.success("出品完了（安定版）")
 
 # =========================
-# ② 検索（強化版）
+# ② 商品一覧
 # =========================
 
 with tab2:
 
-    st.subheader("検索フィルタ")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        maker_filter = st.multiselect(
-            "メーカー",
-            ["デンヨー", "AIRMAN", "ヤンマー", "その他"],
-            default=[]
-        )
-
-    with col2:
-        kva_filter = st.multiselect(
-            "kVA",
-            [25, 45, 60, 100, 150, 200],
-            default=[]
-        )
-
-    with col3:
-        year_filter = st.slider(
-            "年式（範囲）",
-            1990, 2026,
-            (2000, 2026)
-        )
-
-    price_min = st.number_input("最低価格", value=0)
-    price_max = st.number_input("最高価格", value=10000000)
-
-    sort_type = st.selectbox(
-        "並び順",
-        ["おすすめ順", "価格が安い順", "価格が高い順", "新しい順", "kVA大きい順"]
-    )
+    st.subheader("商品一覧")
 
     items = fetch_items()
 
@@ -170,19 +160,6 @@ with tab2:
     for i in items:
 
         name, maker, kva, hours, price, year, note, image = i
-
-        # フィルタ
-        if maker_filter and maker not in maker_filter:
-            continue
-
-        if kva_filter and kva not in kva_filter:
-            continue
-
-        if not (year_filter[0] <= year <= year_filter[1]):
-            continue
-
-        if not (price_min <= price <= price_max):
-            continue
 
         results.append({
             "name": name,
@@ -196,24 +173,9 @@ with tab2:
             "score": score(kva, price)
         })
 
-    # ソート
-    if sort_type == "おすすめ順":
-        results.sort(key=lambda x: x["score"], reverse=True)
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
 
-    elif sort_type == "価格が安い順":
-        results.sort(key=lambda x: x["price"])
-
-    elif sort_type == "価格が高い順":
-        results.sort(key=lambda x: x["price"], reverse=True)
-
-    elif sort_type == "新しい順":
-        results.sort(key=lambda x: x["year"], reverse=True)
-
-    elif sort_type == "kVA大きい順":
-        results.sort(key=lambda x: x["kva"], reverse=True)
-
-    # 表示
-    st.subheader(f"検索結果：{len(results)}件")
+    st.subheader(f"登録件数: {len(results)}件")
 
     for i, r in enumerate(results, 1):
 

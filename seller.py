@@ -2,88 +2,56 @@ import streamlit as st
 import sqlite3
 from datetime import datetime
 
-# =========================
-# DB
-# =========================
+st.set_page_config(page_title="OMI SELLER", layout="wide")
+
 conn = sqlite3.connect("omi.db", check_same_thread=False)
 c = conn.cursor()
 
-# =========================
-# PAGE
-# =========================
-st.set_page_config(page_title="OMI Seller", layout="wide")
-
-st.title("🛠 出品者管理ページ（Seller）")
+st.title("🛠 SELLER管理画面")
 
 # =========================
-# LOGIN（簡易版）
+# BACK TO TOP
 # =========================
-st.subheader("🔐 ログイン（簡易）")
+if st.button("← TOPへ戻る"):
+    st.switch_page("app.py")
+
+# =========================
+# LOGIN（簡易）
+# =========================
+st.subheader("🔐 ログイン")
 
 user = st.text_input("ユーザー名")
-password = st.text_input("パスワード", type="password")
+pw = st.text_input("パスワード", type="password")
 
-login_ok = False
+login = (user != "" and pw != "")
 
-if st.button("ログイン"):
-    if user and password:
-        login_ok = True
-        st.success("ログイン成功（仮）")
-    else:
-        st.error("ユーザー名とパスワードを入力してください")
-
-# =========================
-# ITEM ENTRY
-# =========================
-if login_ok or (user and password):
+if login:
+    st.success("ログイン状態")
 
     st.subheader("📦 出品登録")
 
     title = st.text_input("商品名")
     maker = st.text_input("メーカー")
 
-    kva = st.selectbox(
-        "KVA（容量）",
-        [50, 100, 150, 200, 300, 500, 750, 1000]
-    )
+    kva = st.selectbox("KVA", [50, 100, 200, 300, 500, 750, 1000])
 
-    price = st.number_input("価格（円）", min_value=0, step=1000)
+    price = st.number_input("価格", min_value=0)
 
-    year = st.selectbox(
-        "年式",
-        list(range(1990, datetime.now().year + 1))
-    )
+    year = st.selectbox("年式", list(range(1990, datetime.now().year + 1)))
 
     note = st.text_area("備考")
 
-    if st.button("登録する"):
+    if st.button("登録"):
+        c.execute("""
+            INSERT INTO items (title, maker, kva, price, year, note)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (title, maker, kva, price, year, note))
+        conn.commit()
+        st.success("登録完了")
 
-        if title and maker:
+    st.write("## 📋 出品一覧")
 
-            c.execute("""
-                INSERT INTO items (title, maker, kva, price, year, note)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (title, maker, kva, price, year, note))
+    items = c.execute("SELECT title, kva, price, year FROM items").fetchall()
 
-            conn.commit()
-
-            st.success("登録完了")
-
-        else:
-            st.error("商品名とメーカーは必須です")
-
-    # =========================
-    # MY ITEMS
-    # =========================
-    st.subheader("📋 自分の出品一覧（全件表示）")
-
-    try:
-        items = c.execute("SELECT title, kva, price, year FROM items").fetchall()
-    except:
-        items = []
-
-    if len(items) == 0:
-        st.info("まだ出品がありません")
-    else:
-        for i in items:
-            st.write(f"{i[0]} / {i[1]}KVA / ¥{i[2]} / {i[3]}年")
+    for i in items:
+        st.write(f"{i[0]} / {i[1]}KVA / ¥{i[2]} / {i[3]}年")

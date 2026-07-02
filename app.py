@@ -2,11 +2,9 @@ import streamlit as st
 import re
 import requests
 from bs4 import BeautifulSoup
-import json
-import os
 
 # =========================
-# FETCH（簡易）
+# FETCH
 # =========================
 
 def fetch(url):
@@ -18,46 +16,70 @@ def fetch(url):
         return ""
 
 # =========================
-# PARSER
+# EXTRACTION
 # =========================
 
-def parse(html):
+def extract_model(html):
+    patterns = [
+        r'DCA-\d+[A-Z0-9-]*',
+        r'SDG\d+[A-Z0-9-]*',
+        r'EF\d+[A-Z0-9-]*'
+    ]
+
     text = html.upper()
 
-    model = re.search(r'DCA-\d+[A-Z0-9-]*|SDG\d+[A-Z0-9-]*|EF\d+[A-Z0-9-]*', text)
-    model = model.group(0) if model else "UNKNOWN"
+    for p in patterns:
+        m = re.search(p, text)
+        if m:
+            return m.group(0), 0.9
 
-    kva = re.search(r'(\d{2,3})\s?KVA', text)
-    kva = int(kva.group(1)) if kva else 50
+    return "UNKNOWN", 0.3
 
-    price = re.search(r'¥\s?([\d,]+)', text)
-    price = int(price.group(1).replace(",", "")) if price else None
 
-    return model, kva, price
+def extract_kva(html):
+    text = html.upper()
+
+    patterns = [
+        (r'(\d{2,3})\s?KVA', 0.9),
+        (r'(\d{2,3})KVA', 0.8),
+        (r'出力[^0-9]{0,10}(\d{2,3})', 0.6)
+    ]
+
+    for p, conf in patterns:
+        m = re.search(p, text)
+        if m:
+            return int(m.group(1)), conf
+
+    return 50, 0.2
+
+
+def extract_price(html):
+    text = html
+
+    # 本体価格優先
+    m = re.search(r'本体価格[^¥]{0,50}¥\s?([\d,]+)', text)
+    if m:
+        return int(m.group(1).replace(",", "")), 0.95
+
+    # 税込
+    m = re.search(r'税込価格[^¥]{0,50}¥\s?([\d,]+)', text)
+    if m:
+        return int(m.group(1).replace(",", "")), 0.8
+
+    # fallback
+    m = re.findall(r'¥\s?([\d,]+)', text)
+    if m:
+        return int(m[0].replace(",", "")), 0.4
+
+    return None, 0.0
 
 # =========================
-# MARKET MODEL（ここがv3.0核）
+# SCORE ENGINE
 # =========================
 
-def market_mean(price_list):
-    prices = [p for p in price_list if p]
-    if not prices:
-        return 0
-    return sum(prices) / len(prices)
-
-def discount_rate(price, mean):
-    if not price or not mean:
-        return 0
-    return (mean - price) / mean * 100
-
-# =========================
-# SCORE ENGINE v3.0
-# =========================
-
-def omi_score(kva, price, mean):
+def omi_score(kva, price):
     score = 0
 
-    # 基礎kVA価値
     if 50 <= kva <= 100:
         score += 40
     elif 100 < kva <= 150:
@@ -65,76 +87,67 @@ def omi_score(kva, price, mean):
     else:
         score += 25
 
-    # 割安度（ここが新核）
-    dr = discount_rate(price, mean)
+    if price:
+        if price < 1_000_000:
+            score += 15
+        elif price < 2_000_000:
+            score += 10
+        else:
+            score -= 5
 
-    if dr > 20:
-        score += 40
-    elif dr > 10:
-        score += 25
-    elif dr > 0:
-        score += 10
-    else:
-        score -= 10
+    return min(score, 100)
 
-    return min(score, 100), dr
+# =========================
+# DATA QUALITY SCORE
+# =========================
+
+def data_score(model_c, kva_c, price_c):
+    return round((model_c + kva_c + price_c) / 3 * 100, 1)
 
 # =========================
 # ANALYZE
 # =========================
 
-def analyze(urls):
+def analyze(url):
+    html = fetch(url)
 
-    results = []
+    model, model_c = extract_model(html)
+    kva, kva_c = extract_kva(html)
+    price, price_c = extract_price(html)
 
-    # まず全部パース
-    for url in urls:
-        html = fetch(url)
-        model, kva, price = parse(html)
-        results.append({
-            "url": url,
-            "model": model,
-            "kva": kva,
-            "price": price
-        })
+    score = omi_score(kva, price)
+    dscore = data_score(model_c, kva_c, price_c)
 
-    # 市場平均
-    prices = [r["price"] for r in results]
-    mean = market_mean(prices)
-
-    # スコア付与
-    for r in results:
-        score, dr = omi_score(r["kva"], r["price"], mean)
-        r["score"] = score
-        r["discount"] = dr
-
-        if score >= 80:
-            r["decision"] = "🟢 BUY"
-        elif score >= 60:
-            r["decision"] = "🟡 HOLD"
-        else:
-            r["decision"] = "🔴 SKIP"
-
-    return sorted(results, key=lambda x: x["score"], reverse=True), mean
+    return {
+        "url": url,
+        "model": model,
+        "kva": kva,
+        "price": price,
+        "omi_score": score,
+        "data_score": dscore,
+        "confidence": round((model_c + kva_c + price_c) / 3, 2)
+    }
 
 # =========================
 # UI
 # =========================
 
-st.title("OMI Market Scanner v3.0 - Market Distortion Engine")
+st.title("OMI Market Scanner v3.1 - Data Quality Engine")
 
 urls_input = st.text_area("URLを改行で入力")
 
 if st.button("ANALYZE") and urls_input:
 
     urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
+    results = []
 
-    results, mean = analyze(urls)
+    for url in urls:
+        results.append(analyze(url))
 
-    st.subheader("📊 MARKET STATE")
-    st.write("Market Mean Price:", round(mean, 2))
+    # OMIスコア順
+    results = sorted(results, key=lambda x: x["omi_score"], reverse=True)
 
-    st.subheader("🏆 RANKING")
+    st.subheader("📊 RESULTS")
 
     for i, r in enumerate(results, 1):
 
@@ -144,13 +157,14 @@ if st.button("ANALYZE") and urls_input:
 - URL: {r['url']}
 - kVA: {r['kva']}
 - Price: {r['price']}
-- Discount: {round(r['discount'], 2)}%
-- Score: {r['score']}
-- Decision: {r['decision']}
+- OMI Score: {r['omi_score']}
+- Data Score: {r['data_score']}
+- Confidence: {r['confidence']}
 """)
 
-    st.subheader("🔥 BEST PICK")
     best = results[0]
+
+    st.subheader("🔥 BEST PICK")
     st.write(best["model"])
-    st.metric("OMI SCORE", best["score"])
-    st.write(best["decision"])
+    st.metric("OMI SCORE", best["omi_score"])
+    st.metric("DATA QUALITY", best["data_score"])

@@ -2,6 +2,25 @@ import streamlit as st
 import re
 import requests
 from bs4 import BeautifulSoup
+import json
+import os
+
+# =========================
+# DB FILE
+# =========================
+
+DB_FILE = "omi_db.json"
+
+def load_db():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+def save_db(db):
+    with open(DB_FILE, "w") as f:
+        json.dump(db, f, indent=2)
+
 
 # =========================
 # FETCH
@@ -13,7 +32,7 @@ def fetch(url):
 
 
 # =========================
-# PARSERS
+# PARSER
 # =========================
 
 def parse_usedmachinery(html):
@@ -59,13 +78,12 @@ def parse_by_domain(url, html):
 
 
 # =========================
-# OMI SCORE
+# SCORE
 # =========================
 
 def omi_score(kva, price):
     score = 0
 
-    # kVA評価
     if 50 <= kva <= 100:
         score += 40
     elif 100 < kva <= 150:
@@ -73,7 +91,6 @@ def omi_score(kva, price):
     else:
         score += 25
 
-    # 価格評価
     if price:
         if price < 1_000_000:
             score += 15
@@ -94,7 +111,7 @@ def decision(score):
 
 
 # =========================
-# ANALYZE SINGLE
+# ANALYZE
 # =========================
 
 def analyze(url):
@@ -116,20 +133,23 @@ def analyze(url):
 # STREAMLIT UI
 # =========================
 
-st.title("OMI Market Scanner v2.8")
-st.write("複数URLを貼ってランキング化します（改行区切り）")
+st.title("OMI Market Scanner v2.9 - Memory Edition")
 
-urls_input = st.text_area("URLを複数入力（1行1URL）")
+db = load_db()
+
+urls_input = st.text_area("URL（複数OK・改行区切り）")
 
 if st.button("ANALYZE") and urls_input:
 
     urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
+
     results = []
 
     for url in urls:
         try:
             result = analyze(url)
             results.append(result)
+
         except Exception as e:
             results.append({
                 "url": url,
@@ -140,20 +160,19 @@ if st.button("ANALYZE") and urls_input:
                 "decision": f"ERROR: {e}"
             })
 
-    # =========================
-    # SORT (核心)
-    # =========================
-
+    # SORT
     results = sorted(results, key=lambda x: x["score"], reverse=True)
 
-    # =========================
-    # OUTPUT
-    # =========================
+    # SAVE TO DB
+    db.extend(results)
+    save_db(db)
 
+    st.success("Saved to memory DB")
+
+    # DISPLAY
     st.subheader("🏆 RANKING")
 
     for i, r in enumerate(results, 1):
-
         st.markdown(f"""
 ### #{i} {r['model']}
 
@@ -164,14 +183,17 @@ if st.button("ANALYZE") and urls_input:
 - Decision: {r['decision']}
 """)
 
-    # =========================
-    # BEST PICK
-    # =========================
+# =========================
+# HISTORY VIEW
+# =========================
 
-    best = results[0]
+st.subheader("📦 HISTORY")
 
-    st.subheader("🔥 BEST PICK")
+if db:
+    db_sorted = sorted(db, key=lambda x: x["score"], reverse=True)
 
-    st.write(best["model"])
-    st.metric("OMI SCORE", best["score"])
-    st.write(best["decision"])
+    for i, r in enumerate(db_sorted[:10], 1):
+        st.write(f"{i}. {r['model']} | {r['score']} | {r['decision']}")
+
+else:
+    st.write("No history yet")

@@ -26,10 +26,16 @@ st.markdown("""
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark px-3">
   <a class="navbar-brand" href="#">OMI Market</a>
 
-  <div class="ms-auto d-flex">
+  <div class="ms-auto d-flex align-items-center">
+
+    <a class="nav-link text-light me-3" href="#">FAQ</a>
+    <a class="nav-link text-light me-3" href="#">About Us</a>
+
     <input class="form-control me-2" placeholder="検索（例：100KVA）">
-    <button class="btn btn-outline-light">検索</button>
-    <button class="btn btn-warning ms-2">ログイン</button>
+
+    <button class="btn btn-outline-light me-2">検索</button>
+    <button class="btn btn-warning">ログイン</button>
+
   </div>
 </nav>
 """, unsafe_allow_html=True)

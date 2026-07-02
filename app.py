@@ -1,130 +1,125 @@
 import streamlit as st
-import requests
-import re
 
 # =========================
-# FETCH
+# SESSION DB（仮想DB）
 # =========================
 
-def fetch(url):
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=10)
-        return r.text
-    except:
-        return ""
+if "items" not in st.session_state:
+    st.session_state.items = []
 
 # =========================
-# PARSE ENGINE（軽量版）
+# SCORE ENGINE
 # =========================
 
-def parse(html):
-
-    text = html.upper()
-
-    # model
-    model = re.search(r'DCA-\d+[A-Z0-9-]*|SDG\d+[A-Z0-9-]*|EF\d+[A-Z0-9-]*', text)
-    model = model.group(0) if model else "UNKNOWN"
-
-    # kva
-    kva = re.search(r'(\d{2,3})\s?KVA', text)
-    kva = int(kva.group(1)) if kva else None
-
-    # price
-    price = re.search(r'¥\s?([\d,]+)', html)
-    price = int(price.group(1).replace(",", "")) if price else None
-
-    return model, kva, price
-
-# =========================
-# SCORE
-# =========================
-
-def score(kva, price):
+def score(item):
 
     s = 0
 
-    if kva:
-        if 50 <= kva <= 100:
-            s += 40
-        elif 100 < kva <= 150:
-            s += 35
-        else:
-            s += 20
+    kva = item["kva"]
+    price = item["price"]
 
-    if price:
-        if price < 1000000:
-            s += 20
-        elif price < 2000000:
-            s += 10
-        else:
-            s -= 5
+    if 50 <= kva <= 100:
+        s += 40
+    elif 100 < kva <= 150:
+        s += 35
+    else:
+        s += 20
+
+    if price < 1000000:
+        s += 20
+    elif price < 2000000:
+        s += 10
+    else:
+        s -= 5
 
     return s
-
-# =========================
-# FILTER
-# =========================
-
-def process(urls, min_kva, max_kva):
-
-    results = []
-
-    for url in urls:
-        html = fetch(url)
-        model, kva, price = parse(html)
-
-        if kva is None:
-            continue
-
-        if min_kva <= kva <= max_kva:
-
-            results.append({
-                "url": url,
-                "model": model,
-                "kva": kva,
-                "price": price,
-                "score": score(kva, price)
-            })
-
-    return sorted(results, key=lambda x: x["score"], reverse=True)
 
 # =========================
 # UI
 # =========================
 
-st.title("OMI v3.4 - Live Generator Market Scanner")
+st.title("OMI v4.0 - Marketplace MVP")
 
-st.subheader("🔗 URL INPUT")
+tab1, tab2, tab3 = st.tabs(["🧾 出品", "🔍 検索", "🏆 ランキング"])
 
-urls_input = st.text_area("発電機URLを改行で入力")
+# =========================
+# ① SELLER INPUT
+# =========================
 
-col1, col2 = st.columns(2)
+with tab1:
 
-with col1:
-    min_kva = st.number_input("Min KVA", value=20)
+    st.subheader("出品登録")
 
-with col2:
-    max_kva = st.number_input("Max KVA", value=150)
+    name = st.text_input("モデル名")
+    kva = st.number_input("kVA", value=50)
+    price = st.number_input("価格", value=1000000)
 
-if st.button("ANALYZE"):
+    if st.button("出品する"):
 
-    urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
+        st.session_state.items.append({
+            "name": name,
+            "kva": kva,
+            "price": price
+        })
 
-    results = process(urls, min_kva, max_kva)
+        st.success("登録完了")
 
-    st.subheader("🏆 TOP RESULTS")
+    st.write("現在の出品数:", len(st.session_state.items))
 
-    if not results:
-        st.write("No valid items found")
+# =========================
+# ② SEARCH
+# =========================
+
+with tab2:
+
+    st.subheader("検索")
+
+    min_kva = st.number_input("Min KVA", value=0)
+    max_kva = st.number_input("Max KVA", value=200)
+
+    min_price = st.number_input("Min Price", value=0)
+    max_price = st.number_input("Max Price", value=10000000)
+
+    results = []
+
+    for i in st.session_state.items:
+
+        if min_kva <= i["kva"] <= max_kva and min_price <= i["price"] <= max_price:
+            i["score"] = score(i)
+            results.append(i)
+
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
+
+    st.subheader("検索結果")
 
     for i, r in enumerate(results, 1):
-
         st.markdown(f"""
-### #{i} {r['model']}
+### #{i} {r['name']}
+- kVA: {r['kva']}
+- Price: {r['price']}
+- Score: {r['score']}
+""")
 
-- URL: {r['url']}
-- KVA: {r['kva']}
+# =========================
+# ③ RANKING
+# =========================
+
+with tab3:
+
+    st.subheader("TOPランキング")
+
+    ranked = []
+
+    for i in st.session_state.items:
+        i["score"] = score(i)
+        ranked.append(i)
+
+    ranked = sorted(ranked, key=lambda x: x["score"], reverse=True)
+
+    for i, r in enumerate(ranked[:30], 1):
+        st.markdown(f"""
+### #{i} {r['name']}
+- kVA: {r['kva']}
 - Price: {r['price']}
 - Score: {r['score']}
 """)

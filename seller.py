@@ -3,7 +3,7 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="SELLER", layout="wide")
 
-# 【重要】先ほど作った secrets.toml からSupabaseの鍵を自動で読み込みます
+# secrets.toml からSupabaseの鍵を自動で読み込みます
 url: str = st.secrets["SUPABASE_URL"]
 key: str = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
@@ -24,7 +24,7 @@ if user and pw:
     note = st.text_area("備考")
 
     if st.button("登録"):
-        # Supabaseの「generator」テーブルにデータを直接挿入します
+        # 🔴 テーブル名を「generator」に完全に統一しました
         data, count = supabase.table("generator").insert({
             "title": title,
             "maker": maker,
@@ -37,9 +37,10 @@ if user and pw:
 
     st.write("## 出品一覧")
 
-    # Supabaseからリアルタイムでデータを取得して表示します
+    # 🔴 ここも「generator」に完全に統一しました
     response = supabase.table("generator").select("title", "kva", "price", "year").execute()
     rows = response.data
 
-    for r in rows:
-        st.write(f"{r['title']} / {r['kva']}KVA / ¥{r['price']} / {r['year']}年")
+    if rows:
+        for r in rows:
+            st.write(f"{r['title']} / {r['kva']}KVA / ¥{r['price']} / {r['year']}年")

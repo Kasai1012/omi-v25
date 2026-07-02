@@ -1,271 +1,170 @@
 import streamlit as st
 import sqlite3
+import uuid
+from datetime import datetime
 
-# =========================
-# DB RESET + INIT
-# =========================
-
+# =====================
+# DB初期化
+# =====================
 conn = sqlite3.connect("omi.db", check_same_thread=False)
 c = conn.cursor()
 
-# ★完全リセット（開発用）
-c.execute("DROP TABLE IF EXISTS items")
+c.execute("""
+CREATE TABLE IF NOT EXISTS sellers (
+    seller_id TEXT PRIMARY KEY,
+    company_name TEXT,
+    contact_name TEXT,
+    phone TEXT,
+    email TEXT,
+    location TEXT
+)
+""")
 
 c.execute("""
-CREATE TABLE items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
+CREATE TABLE IF NOT EXISTS items (
+    item_id TEXT PRIMARY KEY,
+    seller_id TEXT,
+    title TEXT,
     maker TEXT,
-    kva INTEGER,
-    hours INTEGER,
-    price INTEGER,
-    year INTEGER,
-    note TEXT,
-    image BLOB
+    kva TEXT,
+    hours TEXT,
+    price TEXT,
+    year TEXT,
+    description TEXT,
+    image TEXT
+)
+""")
+
+c.execute("""
+CREATE TABLE IF NOT EXISTS leads (
+    lead_id TEXT PRIMARY KEY,
+    item_id TEXT,
+    seller_id TEXT,
+    message TEXT,
+    created_at TEXT
 )
 """)
 
 conn.commit()
 
-# =========================
-# SCORE
-# =========================
-
-def score(kva, price):
-
-    s = 0
-
-    if kva in [25, 45]:
-        s += 15
-    elif kva in [60, 80]:
-        s += 25
-    elif kva in [100, 150]:
-        s += 40
-    elif kva in [200, 220]:
-        s += 45
-    elif kva in [300, 500]:
-        s += 35
-    else:
-        s += 10
-
-    if price < 1000000:
-        s += 20
-    elif price < 2000000:
-        s += 10
-    else:
-        s -= 5
-
-    return s
-
-# =========================
-# DB
-# =========================
-
-def insert_item(name, maker, kva, hours, price, year, note, image):
-
-    c.execute("""
-        INSERT INTO items
-        (name, maker, kva, hours, price, year, note, image)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (name, maker, kva, hours, price, year, note, image))
-
-    conn.commit()
-
-def fetch_items():
-
-    c.execute("""
-        SELECT id, name, maker, kva, hours, price, year, note, image
-        FROM items
-    """)
-
-    return c.fetchall()
-
-def get_item(item_id):
-
-    c.execute("""
-        SELECT id, name, maker, kva, hours, price, year, note, image
-        FROM items WHERE id=?
-    """, (item_id,))
-
-    return c.fetchone()
-
-# =========================
+# =====================
 # UI
-# =========================
+# =====================
+st.title("OMI v5.1 Market System")
 
-st.title("OMI v4.6 - Marketplace + Detail View")
+menu = st.sidebar.selectbox(
+    "Menu",
+    ["出品者登録", "商品登録", "商品一覧", "商品詳細"]
+)
 
-tab1, tab2 = st.tabs(["🧾 出品", "🔍 検索"])
+# =====================
+# 出品者登録
+# =====================
+if menu == "出品者登録":
+    st.header("出品者登録")
 
-# =========================
-# ① 出品
-# =========================
+    company = st.text_input("会社名")
+    contact = st.text_input("担当者")
+    phone = st.text_input("電話番号")
+    email = st.text_input("Email")
+    location = st.text_input("所在地")
 
-with tab1:
+    if st.button("登録"):
+        seller_id = str(uuid.uuid4())
 
-    st.subheader("出品登録")
+        c.execute("""
+        INSERT INTO sellers VALUES (?, ?, ?, ?, ?, ?)
+        """, (seller_id, company, contact, phone, email, location))
 
-    name = st.text_input("モデル名")
+        conn.commit()
+        st.success("出品者登録完了")
 
-    maker = st.selectbox(
-        "メーカー",
-        ["デンヨー", "AIRMAN", "ヤンマー", "その他"]
-    )
+# =====================
+# 商品登録
+# =====================
+elif menu == "商品登録":
+    st.header("商品登録")
 
-    kva = st.selectbox(
-        "kVA",
-        [25, 45, 60, 80, 100, 150, 200, 220, 300, 500]
-    )
+    sellers = c.execute("SELECT seller_id, company_name FROM sellers").fetchall()
+    seller_dict = {s[1]: s[0] for s in sellers}
 
-    year = st.selectbox(
-        "年式",
-        list(range(2026, 1990, -1))
-    )
+    seller_name = st.selectbox("出品者", list(seller_dict.keys()) if sellers else [])
+
+    title = st.text_input("商品名")
+    maker = st.text_input("メーカー")
+
+    kva = st.selectbox("KVA", ["20", "25", "45", "60", "100", "150", "200", "300"])
 
     hours = st.text_input("稼働時間")
     price = st.text_input("価格")
-    note = st.text_area("備考")
+    year = st.text_input("年式")
+    desc = st.text_area("備考")
+    img = st.text_input("画像URL（仮）")
 
-    image_file = st.file_uploader("画像", type=["jpg", "png"])
+    if st.button("登録"):
+        item_id = str(uuid.uuid4())
+        seller_id = seller_dict.get(seller_name)
 
-    if st.button("出品する"):
+        c.execute("""
+        INSERT INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (item_id, seller_id, title, maker, kva, hours, price, year, desc, img))
 
-        try:
-            hours_val = int(''.join(filter(str.isdigit, hours)))
-        except:
-            hours_val = 0
+        conn.commit()
+        st.success("商品登録完了")
 
-        try:
-            price_val = int(''.join(filter(str.isdigit, price)))
-        except:
-            price_val = 0
+# =====================
+# 商品一覧
+# =====================
+elif menu == "商品一覧":
+    st.header("商品一覧")
 
-        img_bytes = image_file.read() if image_file else None
-
-        insert_item(
-            name, maker, kva,
-            hours_val, price_val,
-            year, note, img_bytes
-        )
-
-        st.success("出品完了")
-
-# =========================
-# ② 検索
-# =========================
-
-with tab2:
-
-    st.subheader("検索")
-
-    items = fetch_items()
-
-    # フィルタ
-    maker_filter = st.multiselect(
-        "メーカー",
-        ["デンヨー", "AIRMAN", "ヤンマー", "その他"]
-    )
-
-    kva_filter = st.multiselect(
-        "kVA",
-        [25, 45, 60, 80, 100, 150, 200, 220, 300, 500]
-    )
-
-    price_max = st.number_input("最大価格", value=10000000)
-
-    results = []
+    items = c.execute("""
+    SELECT item_id, title, maker, kva, price FROM items
+    """).fetchall()
 
     for i in items:
+        st.write(f"🟢 {i[1]} / {i[2]} / {i[3]}KVA / ¥{i[4]}")
 
-        item_id, name, maker, kva, hours, price, year, note, image = i
+# =====================
+# 商品詳細
+# =====================
+elif menu == "商品詳細":
+    st.header("商品詳細")
 
-        if maker_filter and maker not in maker_filter:
-            continue
+    item_id_input = st.text_input("商品IDを入力")
 
-        if kva_filter and kva not in kva_filter:
-            continue
+    if item_id_input:
+        item = c.execute("""
+        SELECT * FROM items WHERE item_id=?
+        """, (item_id_input,)).fetchone()
 
-        if price > price_max:
-            continue
+        if item:
+            seller = c.execute("""
+            SELECT company_name, phone, email FROM sellers WHERE seller_id=?
+            """, (item[1],)).fetchone()
 
-        results.append({
-            "id": item_id,
-            "name": name,
-            "maker": maker,
-            "kva": kva,
-            "hours": hours,
-            "price": price,
-            "year": year,
-            "note": note,
-            "image": image,
-            "score": score(kva, price)
-        })
+            st.subheader(item[2])
+            st.write(f"メーカー: {item[3]}")
+            st.write(f"KVA: {item[4]}")
+            st.write(f"稼働時間: {item[5]}")
+            st.write(f"価格: {item[6]}")
+            st.write(f"年式: {item[7]}")
+            st.write(f"備考: {item[8]}")
 
-    results.sort(key=lambda x: x["score"], reverse=True)
+            st.markdown("### 出品者情報")
+            st.write(seller)
 
-    st.subheader(f"検索結果: {len(results)}件")
+            st.markdown("### 問い合わせ")
+            msg = st.text_area("問い合わせ内容")
 
-    # =========================
-    # カード表示 + 詳細導線
-    # =========================
+            if st.button("送信"):
+                lead_id = str(uuid.uuid4())
 
-    for r in results:
+                c.execute("""
+                INSERT INTO leads VALUES (?, ?, ?, ?, ?)
+                """, (lead_id, item_id_input, item[1], msg, str(datetime.now())))
 
-        st.markdown("---")
-
-        col1, col2 = st.columns([1, 2])
-
-        with col1:
-            if r["image"]:
-                st.image(r["image"], width=150)
-
-        with col2:
-            st.markdown(f"""
-### {r['name']}（{r['maker']}）
-
-**🔥 Score: {r['score']}**
-
-- ⚡ kVA: {r['kva']}
-- 📅 年式: {r['year']}
-- ⏱ 稼働: {r['hours']}
-- 💰 価格: ¥{r['price']:,}
-""")
-
-            if st.button(f"詳細を見る（ID:{r['id']}）"):
-                st.session_state.selected_id = r["id"]
-
-# =========================
-# 詳細ページ
-# =========================
-
-if "selected_id" in st.session_state:
-
-    item = get_item(st.session_state.selected_id)
-
-    if item:
-
-        _, name, maker, kva, hours, price, year, note, image = item
-
-        st.markdown("---")
-        st.header("📄 商品詳細")
-
-        col1, col2 = st.columns([1, 2])
-
-        with col1:
-            if image:
-                st.image(image)
-
-        with col2:
-            st.markdown(f"""
-## {name}（{maker}）
-
-- ⚡ kVA: {kva}
-- 📅 年式: {year}
-- ⏱ 稼働時間: {hours}
-- 💰 価格: ¥{price:,}
-
----
-
-### 📝 備考
-{note}
-""")
+                conn.commit()
+                st.success("送信完了")
+        else:
+            st.error("商品が見つかりません")

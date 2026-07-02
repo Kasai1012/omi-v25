@@ -1,22 +1,31 @@
 import streamlit as st
+import sqlite3
 
 # =========================
-# SESSION DB（仮想DB）
+# DB INITIALIZE
 # =========================
 
-if "items" not in st.session_state:
-    st.session_state.items = []
+conn = sqlite3.connect("omi.db", check_same_thread=False)
+c = conn.cursor()
+
+c.execute("""
+CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    kva INTEGER,
+    price INTEGER
+)
+""")
+
+conn.commit()
 
 # =========================
 # SCORE ENGINE
 # =========================
 
-def score(item):
+def score(kva, price):
 
     s = 0
-
-    kva = item["kva"]
-    price = item["price"]
 
     if 50 <= kva <= 100:
         s += 40
@@ -35,16 +44,35 @@ def score(item):
     return s
 
 # =========================
+# INSERT
+# =========================
+
+def insert_item(name, kva, price):
+    c.execute(
+        "INSERT INTO items (name, kva, price) VALUES (?, ?, ?)",
+        (name, kva, price)
+    )
+    conn.commit()
+
+# =========================
+# FETCH
+# =========================
+
+def fetch_items():
+    c.execute("SELECT name, kva, price FROM items")
+    return c.fetchall()
+
+# =========================
 # UI
 # =========================
 
-st.title("OMI v4.0 - Marketplace MVP")
+st.title("OMI v4.1 - SQLite Market OS")
 
-tab1, tab2, tab3 = st.tabs(["🧾 出品", "🔍 検索", "🏆 ランキング"])
+tab1, tab2 = st.tabs(["🧾 出品", "🏆 ランキング"])
 
-# =========================
-# ① SELLER INPUT
-# =========================
+# -------------------------
+# 出品
+# -------------------------
 
 with tab1:
 
@@ -56,67 +84,34 @@ with tab1:
 
     if st.button("出品する"):
 
-        st.session_state.items.append({
-            "name": name,
-            "kva": kva,
-            "price": price
-        })
-
+        insert_item(name, kva, price)
         st.success("登録完了")
 
-    st.write("現在の出品数:", len(st.session_state.items))
-
-# =========================
-# ② SEARCH
-# =========================
+# -------------------------
+# ランキング
+# -------------------------
 
 with tab2:
 
-    st.subheader("検索")
-
-    min_kva = st.number_input("Min KVA", value=0)
-    max_kva = st.number_input("Max KVA", value=200)
-
-    min_price = st.number_input("Min Price", value=0)
-    max_price = st.number_input("Max Price", value=10000000)
-
-    results = []
-
-    for i in st.session_state.items:
-
-        if min_kva <= i["kva"] <= max_kva and min_price <= i["price"] <= max_price:
-            i["score"] = score(i)
-            results.append(i)
-
-    results = sorted(results, key=lambda x: x["score"], reverse=True)
-
-    st.subheader("検索結果")
-
-    for i, r in enumerate(results, 1):
-        st.markdown(f"""
-### #{i} {r['name']}
-- kVA: {r['kva']}
-- Price: {r['price']}
-- Score: {r['score']}
-""")
-
-# =========================
-# ③ RANKING
-# =========================
-
-with tab3:
-
     st.subheader("TOPランキング")
+
+    items = fetch_items()
 
     ranked = []
 
-    for i in st.session_state.items:
-        i["score"] = score(i)
-        ranked.append(i)
+    for i in items:
+        name, kva, price = i
+        ranked.append({
+            "name": name,
+            "kva": kva,
+            "price": price,
+            "score": score(kva, price)
+        })
 
     ranked = sorted(ranked, key=lambda x: x["score"], reverse=True)
 
     for i, r in enumerate(ranked[:30], 1):
+
         st.markdown(f"""
 ### #{i} {r['name']}
 - kVA: {r['kva']}

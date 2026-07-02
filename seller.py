@@ -25,7 +25,7 @@ if user and pw:
 
     if st.button("登録"):
         # Supabaseの「generator」テーブルにデータを直接挿入します
-        data, count = supabase.table("items").insert({
+        data, count = supabase.table("generator").insert({
             "title": title,
             "maker": maker,
             "kva": kva,

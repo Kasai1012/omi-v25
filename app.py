@@ -2,13 +2,13 @@ import streamlit as st
 import sqlite3
 
 # =========================
-# DB INIT（安定版）
+# DB RESET + INIT
 # =========================
 
 conn = sqlite3.connect("omi.db", check_same_thread=False)
 c = conn.cursor()
 
-# ★ 安定化ポイント：毎回スキーマ保証（開発用）
+# ★完全リセット（開発用）
 c.execute("DROP TABLE IF EXISTS items")
 
 c.execute("""
@@ -28,14 +28,13 @@ CREATE TABLE items (
 conn.commit()
 
 # =========================
-# SCORE ENGINE
+# SCORE
 # =========================
 
 def score(kva, price):
 
     s = 0
 
-    # 現実KVA帯評価
     if kva in [25, 45]:
         s += 15
     elif kva in [60, 80]:
@@ -49,7 +48,6 @@ def score(kva, price):
     else:
         s += 10
 
-    # 価格効率
     if price < 1000000:
         s += 20
     elif price < 2000000:
@@ -60,7 +58,7 @@ def score(kva, price):
     return s
 
 # =========================
-# DB INSERT
+# DB
 # =========================
 
 def insert_item(name, maker, kva, hours, price, year, note, image):
@@ -73,32 +71,39 @@ def insert_item(name, maker, kva, hours, price, year, note, image):
 
     conn.commit()
 
-# =========================
-# FETCH
-# =========================
-
 def fetch_items():
+
     c.execute("""
-        SELECT name, maker, kva, hours, price, year, note, image
+        SELECT id, name, maker, kva, hours, price, year, note, image
         FROM items
     """)
+
     return c.fetchall()
+
+def get_item(item_id):
+
+    c.execute("""
+        SELECT id, name, maker, kva, hours, price, year, note, image
+        FROM items WHERE id=?
+    """, (item_id,))
+
+    return c.fetchone()
 
 # =========================
 # UI
 # =========================
 
-st.title("OMI v4.5 Stable - Industrial Market OS")
+st.title("OMI v4.6 - Marketplace + Detail View")
 
-tab1, tab2 = st.tabs(["🧾 出品", "🔍 商品一覧"])
+tab1, tab2 = st.tabs(["🧾 出品", "🔍 検索"])
 
 # =========================
-# ① 出品（現実仕様KVA）
+# ① 出品
 # =========================
 
 with tab1:
 
-    st.subheader("出品登録（安定版）")
+    st.subheader("出品登録")
 
     name = st.text_input("モデル名")
 
@@ -108,7 +113,7 @@ with tab1:
     )
 
     kva = st.selectbox(
-        "kVA（実務レンジ）",
+        "kVA",
         [25, 45, 60, 80, 100, 150, 200, 220, 300, 500]
     )
 
@@ -143,25 +148,48 @@ with tab1:
             year, note, img_bytes
         )
 
-        st.success("出品完了（安定版）")
+        st.success("出品完了")
 
 # =========================
-# ② 商品一覧
+# ② 検索
 # =========================
 
 with tab2:
 
-    st.subheader("商品一覧")
+    st.subheader("検索")
 
     items = fetch_items()
+
+    # フィルタ
+    maker_filter = st.multiselect(
+        "メーカー",
+        ["デンヨー", "AIRMAN", "ヤンマー", "その他"]
+    )
+
+    kva_filter = st.multiselect(
+        "kVA",
+        [25, 45, 60, 80, 100, 150, 200, 220, 300, 500]
+    )
+
+    price_max = st.number_input("最大価格", value=10000000)
 
     results = []
 
     for i in items:
 
-        name, maker, kva, hours, price, year, note, image = i
+        item_id, name, maker, kva, hours, price, year, note, image = i
+
+        if maker_filter and maker not in maker_filter:
+            continue
+
+        if kva_filter and kva not in kva_filter:
+            continue
+
+        if price > price_max:
+            continue
 
         results.append({
+            "id": item_id,
             "name": name,
             "maker": maker,
             "kva": kva,
@@ -173,11 +201,15 @@ with tab2:
             "score": score(kva, price)
         })
 
-    results = sorted(results, key=lambda x: x["score"], reverse=True)
+    results.sort(key=lambda x: x["score"], reverse=True)
 
-    st.subheader(f"登録件数: {len(results)}件")
+    st.subheader(f"検索結果: {len(results)}件")
 
-    for i, r in enumerate(results, 1):
+    # =========================
+    # カード表示 + 詳細導線
+    # =========================
+
+    for r in results:
 
         st.markdown("---")
 
@@ -185,7 +217,7 @@ with tab2:
 
         with col1:
             if r["image"]:
-                st.image(r["image"], width=160)
+                st.image(r["image"], width=150)
 
         with col2:
             st.markdown(f"""
@@ -197,6 +229,43 @@ with tab2:
 - 📅 年式: {r['year']}
 - ⏱ 稼働: {r['hours']}
 - 💰 価格: ¥{r['price']:,}
+""")
 
-📝 {r['note']}
+            if st.button(f"詳細を見る（ID:{r['id']}）"):
+                st.session_state.selected_id = r["id"]
+
+# =========================
+# 詳細ページ
+# =========================
+
+if "selected_id" in st.session_state:
+
+    item = get_item(st.session_state.selected_id)
+
+    if item:
+
+        _, name, maker, kva, hours, price, year, note, image = item
+
+        st.markdown("---")
+        st.header("📄 商品詳細")
+
+        col1, col2 = st.columns([1, 2])
+
+        with col1:
+            if image:
+                st.image(image)
+
+        with col2:
+            st.markdown(f"""
+## {name}（{maker}）
+
+- ⚡ kVA: {kva}
+- 📅 年式: {year}
+- ⏱ 稼働時間: {hours}
+- 💰 価格: ¥{price:,}
+
+---
+
+### 📝 備考
+{note}
 """)

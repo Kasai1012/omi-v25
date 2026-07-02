@@ -5,7 +5,7 @@ import uuid
 conn = sqlite3.connect("omi.db", check_same_thread=False)
 c = conn.cursor()
 
-st.title("OMI Market v4.7")
+st.title("OMI Market")
 
 # =========================
 # SESSION
@@ -13,35 +13,34 @@ st.title("OMI Market v4.7")
 if "seller_id" not in st.session_state:
     st.session_state.seller_id = None
 
-if "page" not in st.session_state:
-    st.session_state.page = "TOP"
-
 # =========================
-# TOP PAGE（必ず表示）
+# PUBLIC VIEW（v4.7コア）
 # =========================
-def show_top():
+def public_view():
 
-    st.subheader("公開マーケット（TOP）")
+    st.subheader("発電機・建機マーケット")
 
     items = c.execute("""
-        SELECT item_id, title, maker, kva, price FROM items
+        SELECT item_id, title, kva, price FROM items
     """).fetchall()
 
     for i in items:
-        st.write(f"🟢 {i[1]} / {i[2]} / {i[3]}KVA / ¥{i[4]}")
+        st.write(f"🟢 {i[1]} / {i[2]}KVA / ¥{i[3]}")
+
+        st.markdown(f"[詳細を見る](?item={i[0]})")
 
     st.markdown("---")
-
-    if st.button("🔑 出品者ログイン"):
-        st.session_state.page = "LOGIN"
+    st.markdown("### 出品者の方はこちら")
+    if st.button("ログイン / 出品管理"):
+        st.session_state.page = "login"
         st.rerun()
 
 # =========================
 # LOGIN
 # =========================
-def show_login():
+def login_view():
 
-    st.subheader("ログイン")
+    st.subheader("出品者ログイン")
 
     name = st.text_input("会社名")
 
@@ -52,23 +51,22 @@ def show_login():
 
         if seller:
             st.session_state.seller_id = seller[0]
-            st.session_state.page = "DASH"
+            st.session_state.page = "dashboard"
             st.rerun()
         else:
-            st.error("見つかりません")
+            st.error("未登録です")
 
-    if st.button("← TOPへ戻る"):
-        st.session_state.page = "TOP"
+    if st.button("← 戻る"):
+        st.session_state.page = "public"
         st.rerun()
 
 # =========================
-# DASHBOARD
+# DASHBOARD（v5）
 # =========================
-def show_dashboard():
+def dashboard_view():
 
     if not st.session_state.seller_id:
-        st.warning("未ログイン")
-        st.session_state.page = "TOP"
+        st.session_state.page = "login"
         st.rerun()
 
     st.subheader("出品者ダッシュボード")
@@ -79,20 +77,39 @@ def show_dashboard():
     """, (st.session_state.seller_id,)).fetchall()
 
     for i in items:
-        st.write(f"📦 {i[0]} / {i[1]} / ¥{i[2]}")
+        st.write(f"📦 {i[0]} / {i[1]}KVA / ¥{i[2]}")
 
-    if st.button("← TOPへ"):
-        st.session_state.page = "TOP"
-        st.rerun()
+    st.markdown("---")
+
+    st.write("### 新規出品")
+
+    title = st.text_input("商品名")
+    kva = st.selectbox("KVA", ["20","25","45","60","100","150","200"])
+    price = st.text_input("価格")
+    year = st.text_input("年式")
+    note = st.text_area("備考")
+
+    if st.button("出品する"):
+        item_id = str(uuid.uuid4())
+
+        c.execute("""
+            INSERT INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (item_id, st.session_state.seller_id, title, kva, price, year, note, ""))
+        conn.commit()
+
+        st.success("出品完了")
 
 # =========================
-# ROUTER
+# ROUTER（最小）
 # =========================
-if st.session_state.page == "TOP":
-    show_top()
+if "page" not in st.session_state:
+    st.session_state.page = "public"
 
-elif st.session_state.page == "LOGIN":
-    show_login()
+if st.session_state.page == "public":
+    public_view()
 
-elif st.session_state.page == "DASH":
-    show_dashboard()
+elif st.session_state.page == "login":
+    login_view()
+
+elif st.session_state.page == "dashboard":
+    dashboard_view()

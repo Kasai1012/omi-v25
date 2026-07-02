@@ -14,9 +14,11 @@ CREATE TABLE IF NOT EXISTS items (
     name TEXT,
     maker TEXT,
     kva INTEGER,
-    year INTEGER,
     hours INTEGER,
-    price INTEGER
+    price INTEGER,
+    year INTEGER,
+    note TEXT,
+    image BLOB
 )
 """)
 
@@ -47,35 +49,47 @@ def score(kva, price):
     return s
 
 # =========================
-# DB FUNCTIONS
+# INSERT
 # =========================
 
-def insert_item(name, maker, kva, year, hours, price):
+def insert_item(name, maker, kva, hours, price, year, note, image):
+
     c.execute("""
-        INSERT INTO items (name, maker, kva, year, hours, price)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (name, maker, kva, year, hours, price))
+        INSERT INTO items
+        (name, maker, kva, hours, price, year, note, image)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (name, maker, kva, hours, price, year, note, image))
+
     conn.commit()
 
+# =========================
+# FETCH
+# =========================
+
 def fetch_items():
-    c.execute("SELECT name, maker, kva, year, hours, price FROM items")
+
+    c.execute("""
+        SELECT name, maker, kva, hours, price, year, note, image
+        FROM items
+    """)
+
     return c.fetchall()
 
 # =========================
 # UI
 # =========================
 
-st.title("OMI v4.2改 - SQLite Market OS")
+st.title("OMI v4.3 - Practical Market OS")
 
 tab1, tab2 = st.tabs(["🧾 出品", "🔍 検索"])
 
 # =========================
-# ① 出品（改善版）
+# ① 出品（実務仕様）
 # =========================
 
 with tab1:
 
-    st.subheader("出品登録")
+    st.subheader("出品登録（業者仕様）")
 
     name = st.text_input("モデル名")
 
@@ -86,18 +100,40 @@ with tab1:
 
     kva = st.number_input("kVA", value=50)
 
+    hours = st.text_input("稼働時間（例: 3745h / 不明でもOK）")
+
+    price = st.text_input("価格（例: 1,200,000）")
+
     year = st.selectbox(
         "年式",
         list(range(2026, 1990, -1))
     )
 
-    hours = st.number_input("稼働時間", value=3000)
+    note = st.text_area("備考（状態・整備履歴など）")
 
-    price = st.number_input("価格", value=1000000)
+    image_file = st.file_uploader("画像（1枚）", type=["jpg", "png"])
 
     if st.button("出品する"):
 
-        insert_item(name, maker, kva, year, hours, price)
+        # 数値変換（ゆるく）
+        try:
+            hours_val = int(''.join(filter(str.isdigit, hours)))
+        except:
+            hours_val = 0
+
+        try:
+            price_val = int(''.join(filter(str.isdigit, price)))
+        except:
+            price_val = 0
+
+        img_bytes = image_file.read() if image_file else None
+
+        insert_item(
+            name, maker, kva,
+            hours_val, price_val,
+            year, note, img_bytes
+        )
+
         st.success("登録完了")
 
 # =========================
@@ -117,7 +153,7 @@ with tab2:
 
     for i in items:
 
-        name, maker, kva, year, hours, price = i
+        name, maker, kva, hours, price, year, note, image = i
 
         if min_kva <= kva <= max_kva:
 
@@ -125,9 +161,11 @@ with tab2:
                 "name": name,
                 "maker": maker,
                 "kva": kva,
-                "year": year,
                 "hours": hours,
                 "price": price,
+                "year": year,
+                "note": note,
+                "image": image,
                 "score": score(kva, price)
             })
 
@@ -140,7 +178,7 @@ with tab2:
         st.markdown(f"""
 ---
 
-### #{i} {r['name']}（{r['maker']}）
+## #{i} {r['name']}（{r['maker']}）
 
 **🔥 Score: {r['score']}**
 
@@ -148,4 +186,10 @@ with tab2:
 - 年式: {r['year']}
 - 稼働時間: {r['hours']}
 - 価格: ¥{r['price']:,}
+
+**📝 備考**
+{r['note']}
 """)
+
+        if r["image"]:
+            st.image(r["image"])

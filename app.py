@@ -1,170 +1,95 @@
 import streamlit as st
-import re
-import requests
-from bs4 import BeautifulSoup
 
 # =========================
-# FETCH
+# MARKET DATA (仮想だが構造は実運用前提)
 # =========================
 
-def fetch(url):
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=10)
-        return r.text
-    except:
-        return ""
+MARKETS = {
+    "Generator": [
+        {"name": "DCA-150LSKE", "kva": 150, "price": 3795000},
+        {"name": "DCA-60ESH", "kva": 60, "price": 1595000},
+        {"name": "DCA-45LSK", "kva": 45, "price": 1210000},
+        {"name": "DCA-25LSK", "kva": 25, "price": 900000},
+        {"name": "EF5500iS", "kva": 5, "price": 198000},
+    ],
 
-# =========================
-# EXTRACTION
-# =========================
+    "Survey Equipment": [
+        {"name": "TOPCON GT-100", "kva": 10, "price": 850000},
+        {"name": "Leica TS06", "kva": 10, "price": 1200000},
+        {"name": "SOKKIA CX-105", "kva": 10, "price": 650000},
+    ],
 
-def extract_model(html):
-    patterns = [
-        r'DCA-\d+[A-Z0-9-]*',
-        r'SDG\d+[A-Z0-9-]*',
-        r'EF\d+[A-Z0-9-]*'
+    "Construction Machinery": [
+        {"name": "Mini Excavator ZX30", "kva": 30, "price": 2500000},
+        {"name": "CAT 320D", "kva": 120, "price": 7800000},
+        {"name": "Kubota U30", "kva": 30, "price": 2100000},
     ]
-
-    text = html.upper()
-
-    for p in patterns:
-        m = re.search(p, text)
-        if m:
-            return m.group(0), 0.9
-
-    return "UNKNOWN", 0.3
-
-
-def extract_kva(html):
-    text = html.upper()
-
-    patterns = [
-        (r'(\d{2,3})\s?KVA', 0.9),
-        (r'(\d{2,3})KVA', 0.8),
-        (r'出力[^0-9]{0,10}(\d{2,3})', 0.6)
-    ]
-
-    for p, conf in patterns:
-        m = re.search(p, text)
-        if m:
-            return int(m.group(1)), conf
-
-    return 50, 0.2
-
-
-def extract_price(html):
-    text = html
-
-    # 本体価格優先
-    m = re.search(r'本体価格[^¥]{0,50}¥\s?([\d,]+)', text)
-    if m:
-        return int(m.group(1).replace(",", "")), 0.95
-
-    # 税込
-    m = re.search(r'税込価格[^¥]{0,50}¥\s?([\d,]+)', text)
-    if m:
-        return int(m.group(1).replace(",", "")), 0.8
-
-    # fallback
-    m = re.findall(r'¥\s?([\d,]+)', text)
-    if m:
-        return int(m[0].replace(",", "")), 0.4
-
-    return None, 0.0
+}
 
 # =========================
-# SCORE ENGINE
+# SCORE ENGINE（v3ロジック流用）
 # =========================
 
-def omi_score(kva, price):
-    score = 0
+def score(item):
 
-    if 50 <= kva <= 100:
-        score += 40
-    elif 100 < kva <= 150:
-        score += 35
+    s = 0
+
+    # サイズ価値
+    if 50 <= item["kva"] <= 100:
+        s += 40
+    elif 100 < item["kva"] <= 150:
+        s += 35
     else:
-        score += 25
+        s += 25
 
-    if price:
-        if price < 1_000_000:
-            score += 15
-        elif price < 2_000_000:
-            score += 10
-        else:
-            score -= 5
+    # 価格効率
+    if item["price"] < 1000000:
+        s += 20
+    elif item["price"] < 3000000:
+        s += 10
+    else:
+        s -= 5
 
-    return min(score, 100)
-
-# =========================
-# DATA QUALITY SCORE
-# =========================
-
-def data_score(model_c, kva_c, price_c):
-    return round((model_c + kva_c + price_c) / 3 * 100, 1)
+    return s
 
 # =========================
-# ANALYZE
+# MARKET BUILD
 # =========================
 
-def analyze(url):
-    html = fetch(url)
-
-    model, model_c = extract_model(html)
-    kva, kva_c = extract_kva(html)
-    price, price_c = extract_price(html)
-
-    score = omi_score(kva, price)
-    dscore = data_score(model_c, kva_c, price_c)
-
-    return {
-        "url": url,
-        "model": model,
-        "kva": kva,
-        "price": price,
-        "omi_score": score,
-        "data_score": dscore,
-        "confidence": round((model_c + kva_c + price_c) / 3, 2)
-    }
+def build_market(items):
+    for i in items:
+        i["score"] = score(i)
+    return sorted(items, key=lambda x: x["score"], reverse=True)
 
 # =========================
 # UI
 # =========================
 
-st.title("OMI Market Scanner v3.1 - Data Quality Engine")
+st.title("OMI v3.2 - Market Shelf Engine")
 
-urls_input = st.text_area("URLを改行で入力")
+market = st.selectbox("Marketを選択", list(MARKETS.keys()))
 
-if st.button("ANALYZE") and urls_input:
+items = build_market(MARKETS[market])
 
-    urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
-    results = []
+st.subheader(f"🏆 TOP 30 - {market}")
 
-    for url in urls:
-        results.append(analyze(url))
+top30 = items[:30]
 
-    # OMIスコア順
-    results = sorted(results, key=lambda x: x["omi_score"], reverse=True)
+for i, item in enumerate(top30, 1):
 
-    st.subheader("📊 RESULTS")
+    st.markdown(f"""
+### #{i} {item['name']}
 
-    for i, r in enumerate(results, 1):
-
-        st.markdown(f"""
-### #{i} {r['model']}
-
-- URL: {r['url']}
-- kVA: {r['kva']}
-- Price: {r['price']}
-- OMI Score: {r['omi_score']}
-- Data Score: {r['data_score']}
-- Confidence: {r['confidence']}
+- kVA: {item['kva']}
+- Price: {item['price']}
+- Score: {item['score']}
 """)
 
-    best = results[0]
+# =========================
+# MARKET SUMMARY
+# =========================
 
-    st.subheader("🔥 BEST PICK")
-    st.write(best["model"])
-    st.metric("OMI SCORE", best["omi_score"])
-    st.metric("DATA QUALITY", best["data_score"])
+st.subheader("📊 Market Summary")
+
+st.write("Total items:", len(items))
+st.write("Best score:", items[0]["score"])

@@ -24,7 +24,7 @@ if user and pw:
     note = st.text_area("備考")
 
     if st.button("登録"):
-        # Supabaseの「items」テーブルにデータを直接挿入します
+        # Supabaseの「generator」テーブルにデータを直接挿入します
         data, count = supabase.table("items").insert({
             "title": title,
             "maker": maker,
@@ -38,7 +38,7 @@ if user and pw:
     st.write("## 出品一覧")
 
     # Supabaseからリアルタイムでデータを取得して表示します
-    response = supabase.table("items").select("title", "kva", "price", "year").execute()
+    response = supabase.table("generator").select("title", "kva", "price", "year").execute()
     rows = response.data
 
     for r in rows:
